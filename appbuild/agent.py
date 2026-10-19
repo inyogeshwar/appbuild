@@ -191,8 +191,21 @@ class LLMClient:
         for tc in tool_calls:
             fn = tc.get("function", {})
             args = fn.get("arguments", "{}")
-            if not isinstance(args, str):
+            if args is None:
+                args = {}
+            if isinstance(args, (dict, list)):
                 fn["arguments"] = json.dumps(args)
+            elif not isinstance(args, str):
+                fn["arguments"] = json.dumps(args)
+            else:
+                # Ensure it is a valid stringified JSON object.
+                try:
+                    parsed = json.loads(args)
+                    if not isinstance(parsed, (dict, list)):
+                        parsed = {}
+                    fn["arguments"] = json.dumps(parsed)
+                except json.JSONDecodeError:
+                    fn["arguments"] = "{}"
         return {"content": msg.get("content"), "tool_calls": tool_calls}
 
     def _convert_messages_to_anthropic(self, messages):
