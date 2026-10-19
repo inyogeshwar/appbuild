@@ -3,6 +3,7 @@
 import os
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 from typing import Optional
 
@@ -339,6 +340,60 @@ def uninstall(
     console.print("  [cyan]pip uninstall appbuild -y[/cyan]")
     console.print("\n[dim]If 'appbuild' is still available after that, remove appbuild.exe")
     console.print("[dim]from your Python Scripts folder or restart the terminal.[/dim]")
+
+
+@app.command()
+def install(
+    user: bool = typer.Option(False, "--user", help="Install into user site-packages."),
+    global_install: bool = typer.Option(False, "--global", help="Install globally (default)."),
+    editable: bool = typer.Option(False, "--editable", "-e", help="Editable install from current directory."),
+    upgrade: bool = typer.Option(True, "--upgrade/--no-upgrade", "-U", help="Upgrade if already installed."),
+    source: str = typer.Option("github", "--source", help="Source: github or local."),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Print command without running."),
+):
+    """Install or upgrade appbuild globally or for the current user."""
+    if user and global_install:
+        console.print("[red]Use either --user or --global, not both.[/red]")
+        raise typer.Exit(code=1)
+
+    if editable and source != "local":
+        console.print("[red]--editable requires --source local.[/red]")
+        raise typer.Exit(code=1)
+
+    use_user = user and not global_install
+
+    if source == "local":
+        target = "."
+    else:
+        target = "git+https://github.com/inyogeshwar/appbuild.git"
+
+    cmd = [sys.executable, "-m", "pip", "install"]
+    if upgrade:
+        cmd.append("--upgrade")
+    if use_user:
+        cmd.append("--user")
+    if editable:
+        cmd.append("-e")
+    cmd.append(target)
+
+    console.print("[bold]Install command:[/bold]")
+    console.print("  " + " ".join(cmd))
+
+    if dry_run:
+        return
+
+    console.print("\n[dim]Running...[/dim]")
+    try:
+        proc = subprocess.run(cmd, text=True)
+    except Exception as exc:
+        console.print(f"[red]Failed to run installer: {exc}[/red]")
+        raise typer.Exit(code=1)
+    if proc.returncode != 0:
+        console.print(f"[red]Install failed (exit {proc.returncode}).[/red]")
+        if not use_user:
+            console.print("[yellow]Try --user or run terminal as administrator.[/yellow]")
+        raise typer.Exit(code=proc.returncode)
+    console.print("[green]appbuild installed successfully.[/green]")
 
 
 @app.command()
