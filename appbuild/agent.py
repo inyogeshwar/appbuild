@@ -2,6 +2,8 @@
 
 import json
 import os
+import re
+import time
 from typing import Any, Dict, List, Optional
 
 import httpx
@@ -154,9 +156,32 @@ class LLMClient:
         return self.base_url + "/v1/messages"
 
     def chat(self, messages: List[Dict[str, Any]], tools: List[Dict[str, Any]]) -> Dict[str, Any]:
-        if self.provider_type == "anthropic":
-            return self._chat_anthropic(messages, tools)
-        return self._chat_openai(messages, tools)
+        last_exc = None
+        for attempt in range(4):
+            try:
+                if self.provider_type == "anthropic":
+                    return self._chat_anthropic(messages, tools)
+                return self._chat_openai(messages, tools)
+            except RuntimeError as exc:
+                last_exc = exc
+                text = str(exc)
+                if "429" not in text and "rate limit" not in text.lower():
+                    raise
+                if attempt >= 3:
+                    raise
+                wait = 5.0
+                match = re.search(r"try again in ([0-9]+(?:\.[0-9]+)?)s", text, re.IGNORECASE)
+                if match:
+                    try:
+                        wait = float(match.group(1)) + 1.0
+                    except ValueError:
+                        wait = 5.0
+                # Keep waits bounded.
+                wait = min(max(wait, 2.0), 30.0)
+                time.sleep(wait)
+        if last_exc:
+            raise last_exc
+        raise RuntimeError("LLM request failed")
 
     def _chat_openai(self, messages, tools):
         url = self._openai_url()
