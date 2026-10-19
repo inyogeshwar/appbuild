@@ -8,6 +8,7 @@ from typing import Optional
 
 import typer
 from rich.console import Console
+from rich.panel import Panel
 from rich.table import Table
 
 from . import __version__
@@ -154,44 +155,32 @@ def doctor():
         except Exception as exc:
             return -1, str(exc)
 
-    os_name = _platform.system()  # Windows / Darwin / Linux
-    found_flutter = None
+    os_name = _platform.system()
     missing_hints = []
 
-    # ---------- Flutter Ecosystem ----------
-    flutter_table = Table(title="Flutter Ecosystem", show_lines=False)
-    flutter_table.add_column("Component", style="cyan", width=22)
-    flutter_table.add_column("Status", width=14)
-    flutter_table.add_column("Details", style="dim")
-
+    # ---------- Flutter & Dart Ecosystem ----------
+    flutter_lines = []
     flutter_path = shutil.which("flutter")
+
     if flutter_path:
-        found_flutter = flutter_path
-        flutter_table.add_row("Flutter binary", "[green]✔ Found[/green]", flutter_path)
+        code, out = _run("flutter --version", timeout=30)
+        first_line = out.splitlines()[0] if out else ""
+        version_token = ""
+        for token in first_line.split():
+            if token and token[0].isdigit():
+                version_token = token
+                break
+        v_suffix = f" (v{version_token})" if version_token else ""
+        flutter_lines.append(f"[green]✔[/green] Flutter SDK   : {flutter_path}{v_suffix}")
     else:
-        # Check standard install directories.
         candidates = []
         home = Path.home()
         if os_name == "Windows":
-            candidates = [
-                Path("C:/src/flutter"),
-                Path("C:/flutter"),
-                Path("D:/flutter"),
-                home / "development" / "flutter",
-                home / "flutter",
-            ]
+            candidates = [Path("C:/src/flutter"), Path("C:/flutter"), Path("D:/flutter"), home / "development" / "flutter", home / "flutter"]
         elif os_name == "Darwin":
-            candidates = [
-                home / "development" / "flutter",
-                Path("/usr/local/flutter"),
-                Path("/opt/flutter"),
-            ]
+            candidates = [home / "development" / "flutter", Path("/usr/local/flutter"), Path("/opt/flutter")]
         else:
-            candidates = [
-                home / "development" / "flutter",
-                Path("/opt/flutter"),
-                Path("/usr/local/flutter"),
-            ]
+            candidates = [home / "development" / "flutter", Path("/opt/flutter"), Path("/usr/local/flutter")]
         found_dir = None
         for c in candidates:
             flutter_bin = c / "bin" / ("flutter.bat" if os_name == "Windows" else "flutter")
@@ -199,107 +188,34 @@ def doctor():
                 found_dir = c
                 break
         if found_dir:
-            flutter_table.add_row("Flutter (standard dir)", "[yellow]⚠ Warning[/yellow]", f"Found at {found_dir} but not on PATH")
+            flutter_lines.append(f"[yellow]⚠[/yellow] Flutter SDK   : {found_dir} (not on PATH)")
             missing_hints.append(f'Add to PATH: {found_dir / "bin"}')
         else:
-            flutter_table.add_row("Flutter binary", "[red]✘ Missing[/red]", "flutter not found in PATH or standard directories")
+            flutter_lines.append("[red]✘[/red] Flutter SDK   : Not found")
             missing_hints.append("Install Flutter: https://docs.flutter.dev/get-started/install")
 
+    # Dart SDK
     dart_path = shutil.which("dart")
-    if dart_path:
-        flutter_table.add_row("Dart binary", "[green]✔ Found[/green]", dart_path)
-    else:
-        # Try alongside flutter.
-        if flutter_path:
-            sibling = Path(flutter_path).parent / ("dart.exe" if os_name == "Windows" else "dart")
-            if sibling.exists():
-                flutter_table.add_row("Dart binary", "[green]✔ Found[/green]", str(sibling))
-            else:
-                flutter_table.add_row("Dart binary", "[yellow]⚠ Warning[/yellow]", "dart not on PATH (bundled with Flutter)")
-        else:
-            flutter_table.add_row("Dart binary", "[red]✘ Missing[/red]", "dart not found")
-
-    # Flutter version
+    dart_sdk_dir = None
     if flutter_path:
-        code, out = _run("flutter --version", timeout=30)
-        first_line = out.splitlines()[0] if out else ""
-        if code == 0 and first_line:
-            flutter_table.add_row("Flutter version", "[green]✔ Found[/green]", first_line)
-        else:
-            flutter_table.add_row("Flutter version", "[yellow]⚠ Warning[/yellow]", out[:120] or "Could not determine")
+        try:
+            dart_sdk_dir = Path(flutter_path).resolve().parent.parent / "bin" / "cache" / "dart-sdk"
+        except Exception:
+            dart_sdk_dir = None
+    if dart_sdk_dir and dart_sdk_dir.exists():
+        flutter_lines.append(f"[green]✔[/green] Dart SDK      : {dart_sdk_dir}")
+    elif dart_path:
+        flutter_lines.append(f"[green]✔[/green] Dart SDK      : {Path(dart_path).parent}")
     else:
-        flutter_table.add_row("Flutter version", "[red]✘ Missing[/red]", "N/A")
-
-    console.print(flutter_table)
-
-    # ---------- Android Toolchain ----------
-    android_table = Table(title="Android Toolchain", show_lines=False)
-    android_table.add_column("Component", style="cyan", width=22)
-    android_table.add_column("Status", width=14)
-    android_table.add_column("Details", style="dim")
-
-    # Environment variables
-    android_home_env = os.getenv("ANDROID_HOME")
-    android_sdk_root_env = os.getenv("ANDROID_SDK_ROOT")
-    sdk_root = None
-    if android_home_env and Path(android_home_env).exists():
-        sdk_root = android_home_env
-        android_table.add_row("ANDROID_HOME", "[green]✔ Found[/green]", android_home_env)
-    elif android_home_env:
-        android_table.add_row("ANDROID_HOME", "[red]✘ Missing[/red]", f"Set but path does not exist: {android_home_env}")
-    else:
-        android_table.add_row("ANDROID_HOME", "[yellow]⚠ Warning[/yellow]", "Not set")
-
-    if android_sdk_root_env and Path(android_sdk_root_env).exists():
-        if sdk_root is None:
-            sdk_root = android_sdk_root_env
-        android_table.add_row("ANDROID_SDK_ROOT", "[green]✔ Found[/green]", android_sdk_root_env)
-    elif android_sdk_root_env:
-        android_table.add_row("ANDROID_SDK_ROOT", "[red]✘ Missing[/red]", f"Set but path does not exist: {android_sdk_root_env}")
-    else:
-        android_table.add_row("ANDROID_SDK_ROOT", "[yellow]⚠ Warning[/yellow]", "Not set")
-
-    # Default locations
-    if sdk_root is None:
-        if os_name == "Windows":
-            default_sdk = Path(os.getenv("LOCALAPPDATA", "")) / "Android" / "Sdk"
-        elif os_name == "Darwin":
-            default_sdk = Path.home() / "Library" / "Android" / "sdk"
+        if flutter_path:
+            flutter_lines.append("[yellow]⚠[/yellow] Dart SDK      : bundled with Flutter (not on PATH)")
         else:
-            default_sdk = Path.home() / "Android" / "Sdk"
-        if default_sdk.exists():
-            sdk_root = str(default_sdk)
-            android_table.add_row("Android SDK (default)", "[green]✔ Found[/green]", str(default_sdk))
-        else:
-            android_table.add_row("Android SDK (default)", "[red]✘ Missing[/red]", f"Not found at {default_sdk}")
-            missing_hints.append(f"Install Android SDK (Android Studio) or set ANDROID_HOME to your SDK path")
+            flutter_lines.append("[red]✘[/red] Dart SDK      : Not found")
 
-    # adb
-    adb_path = shutil.which("adb")
-    if adb_path:
-        android_table.add_row("adb", "[green]✔ Found[/green]", adb_path)
-    elif sdk_root and Path(sdk_root, "platform-tools", "adb.exe" if os_name == "Windows" else "adb").exists():
-        adb_candidate = Path(sdk_root, "platform-tools", "adb.exe" if os_name == "Windows" else "adb")
-        android_table.add_row("adb", "[yellow]⚠ Warning[/yellow]", f"Found in SDK but not on PATH: {adb_candidate}")
-        missing_hints.append(f'Add to PATH: {Path(sdk_root) / "platform-tools"}')
-    else:
-        android_table.add_row("adb", "[red]✘ Missing[/red]", "adb not found")
-        missing_hints.append("Install Android platform-tools")
+    console.print(Panel("\n".join(flutter_lines), title="Flutter & Dart Ecosystem", border_style="cyan"))
 
-    # platform-tools and build-tools dirs
-    if sdk_root and Path(sdk_root).exists():
-        pt = Path(sdk_root) / "platform-tools"
-        bt = Path(sdk_root) / "build-tools"
-        if pt.exists():
-            android_table.add_row("platform-tools dir", "[green]✔ Found[/green]", str(pt))
-        else:
-            android_table.add_row("platform-tools dir", "[red]✘ Missing[/red]", str(pt))
-        if bt.exists():
-            versions = [p.name for p in bt.iterdir() if p.is_dir()]
-            detail = f"{bt} ({', '.join(versions[:5])})" if versions else str(bt)
-            android_table.add_row("build-tools dir", "[green]✔ Found[/green]", detail)
-        else:
-            android_table.add_row("build-tools dir", "[red]✘ Missing[/red]", str(bt))
+    # ---------- Android Toolchain & Studio ----------
+    android_lines = []
 
     # Android Studio
     studio_candidates = []
@@ -318,65 +234,91 @@ def doctor():
             studio_found = sc
             break
     if studio_found:
-        android_table.add_row("Android Studio", "[green]✔ Found[/green]", str(studio_found))
+        android_lines.append(f"[green]✔[/green] Android Studio: {studio_found}")
     else:
-        android_table.add_row("Android Studio", "[yellow]⚠ Warning[/yellow]", "Not found in default locations")
+        android_lines.append("[yellow]⚠[/yellow] Android Studio: Not found in default locations")
 
-    # Java / JDK
+    # ANDROID_HOME / SDK
+    android_home_env = os.getenv("ANDROID_HOME")
+    android_sdk_root_env = os.getenv("ANDROID_SDK_ROOT")
+    sdk_root = None
+    if android_home_env and Path(android_home_env).exists():
+        sdk_root = android_home_env
+    elif android_sdk_root_env and Path(android_sdk_root_env).exists():
+        sdk_root = android_sdk_root_env
+    else:
+        if os_name == "Windows":
+            default_sdk = Path(os.getenv("LOCALAPPDATA", "")) / "Android" / "Sdk"
+        elif os_name == "Darwin":
+            default_sdk = Path.home() / "Library" / "Android" / "sdk"
+        else:
+            default_sdk = Path.home() / "Android" / "Sdk"
+        if default_sdk.exists():
+            sdk_root = str(default_sdk)
+
+    if sdk_root:
+        android_lines.append(f"[green]✔[/green] ANDROID_HOME  : {sdk_root}")
+    else:
+        android_lines.append("[red]✘[/red] ANDROID_HOME  : Not found")
+        missing_hints.append("Install Android SDK or set ANDROID_HOME")
+
+    # adb
+    adb_path = shutil.which("adb")
+    if adb_path:
+        android_lines.append(f"[green]✔[/green] ADB Tool      : {adb_path}")
+    elif sdk_root and Path(sdk_root, "platform-tools", "adb.exe" if os_name == "Windows" else "adb").exists():
+        adb_candidate = Path(sdk_root, "platform-tools", "adb.exe" if os_name == "Windows" else "adb")
+        android_lines.append(f"[yellow]⚠[/yellow] ADB Tool      : {adb_candidate} (not on PATH)")
+        missing_hints.append(f'Add to PATH: {Path(sdk_root) / "platform-tools"}')
+    else:
+        android_lines.append("[red]✘[/red] ADB Tool      : Not found")
+        missing_hints.append("Install Android platform-tools")
+
+    # Java
     java_home = os.getenv("JAVA_HOME")
-    if java_home and Path(java_home).exists():
-        android_table.add_row("JAVA_HOME", "[green]✔ Found[/green]", java_home)
-    elif java_home:
-        android_table.add_row("JAVA_HOME", "[red]✘ Missing[/red]", f"Set but path does not exist: {java_home}")
-    else:
-        android_table.add_row("JAVA_HOME", "[yellow]⚠ Warning[/yellow]", "Not set")
-
     java_path = shutil.which("java")
-    if java_path:
-        android_table.add_row("java binary", "[green]✔ Found[/green]", java_path)
-        code, out = _run("java -version", timeout=15)
-        # java -version prints to stderr; capture combined.
-        ver_line = (out.splitlines()[0] if out else "").strip()
-        if ver_line:
-            android_table.add_row("java version", "[green]✔ Found[/green]", ver_line)
+    code, out = _run("java -version", timeout=15)
+    java_ver = ""
+    if out:
+        for line in out.splitlines():
+            if "version" in line.lower():
+                java_ver = line.strip()
+                break
+    if not java_ver and out:
+        java_ver = out.splitlines()[0].strip()
+    java_location = java_path or (str(Path(java_home) / "bin" / ("java.exe" if os_name == "Windows" else "java")) if java_home else "")
+    if java_path or (java_home and Path(java_home).exists()):
+        detail = java_ver if java_ver else (java_location or "installed")
+        if java_location and java_location not in detail:
+            detail = f"{detail} ({java_location})"
+        android_lines.append(f"[green]✔[/green] Java Runtime  : {detail}")
     else:
-        android_table.add_row("java binary", "[red]✘ Missing[/red]", "java not found in PATH")
+        android_lines.append("[red]✘[/red] Java Runtime  : Not found")
         missing_hints.append("Install a JDK (e.g. Temurin) and set JAVA_HOME")
 
-    console.print(android_table)
+    console.print(Panel("\n".join(android_lines), title="Android Toolchain & Studio", border_style="cyan"))
 
-    # ---------- LLM Credentials ----------
-    llm_table = Table(title="LLM Credentials", show_lines=False)
-    llm_table.add_column("Component", style="cyan", width=22)
-    llm_table.add_column("Status", width=14)
-    llm_table.add_column("Details", style="dim")
-
+    # ---------- Config & API Provider ----------
     cfg = cfgmod.load_config()
     provider = cfg.get("provider_type", "openai")
     key = cfgmod.resolve_api_key(provider, None, cfg.get("api_key"))
+    config_lines = []
     if key:
-        llm_table.add_row("API key", "[green]✔ Found[/green]", f"{provider}: {cfgmod.mask_key(key)}")
+        config_lines.append(f"[green]✔[/green] API Key       : {cfgmod.mask_key(key)}")
     else:
-        llm_table.add_row("API key", "[red]✘ Missing[/red]", "Configure via `appbuild config` or env vars")
+        config_lines.append("[red]✘[/red] API Key       : Not found")
         missing_hints.append("Run: appbuild config")
+    config_lines.append(f"[green]✔[/green] Provider      : {provider} ({cfg.get('base_url')})")
+    config_lines.append(f"[green]✔[/green] Default Model : {cfg.get('model')}")
+    console.print(Panel("\n".join(config_lines), title="Config & API Provider", border_style="cyan"))
 
-    if cfgmod.CONFIG_PATH.exists():
-        llm_table.add_row("Config file", "[green]✔ Found[/green]", str(cfgmod.CONFIG_PATH))
-    else:
-        llm_table.add_row("Config file", "[yellow]⚠ Warning[/yellow]", "Using defaults / env vars")
-
-    llm_table.add_row("Provider", "[green]✔ Found[/green]", provider)
-    llm_table.add_row("Base URL", "[green]✔ Found[/green]", str(cfg.get("base_url")))
-    llm_table.add_row("Model", "[green]✔ Found[/green]", str(cfg.get("model")))
-    console.print(llm_table)
-
-    # Hints
     if missing_hints:
         console.print("\n[bold yellow]Suggested fixes:[/bold yellow]")
         for h in missing_hints:
             console.print(f"  • {h}")
     else:
         console.print("\n[bold green]All critical components detected.[/bold green]")
+
 
 @app.command()
 def version():
