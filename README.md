@@ -40,6 +40,15 @@ appbuild doctor
 appbuild --help
 ```
 
+## Install / Upgrade via CLI
+
+```bash
+appbuild install --global
+appbuild install --user
+appbuild install --user --editable --source local
+appbuild install --dry-run
+```
+
 ## Uninstall
 
 ```bash
