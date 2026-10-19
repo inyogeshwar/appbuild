@@ -40,8 +40,11 @@ appbuild doctor
 appbuild --help
 ```
 
-## Requirements
+## Uninstall
 
-- Python 3.10+
-- Flutter SDK in PATH
-- Android build tools (for Android targets)
+```bash
+appbuild uninstall --yes
+pip uninstall appbuild -y
+```
+
+This removes `~/.appbuild` configuration and the package.

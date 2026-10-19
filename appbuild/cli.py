@@ -321,6 +321,27 @@ def doctor():
 
 
 @app.command()
+def uninstall(
+    yes: bool = typer.Option(False, "--yes", "-y", help="Confirm without prompt."),
+    keep_config: bool = typer.Option(False, "--keep-config", help="Keep ~/.appbuild configuration."),
+):
+    """Uninstall appbuild and remove its local configuration."""
+    if not yes:
+        if not typer.confirm("Remove appbuild config and show uninstall steps?"):
+            raise typer.Exit()
+    if not keep_config and cfgmod.CONFIG_DIR.exists():
+        shutil.rmtree(cfgmod.CONFIG_DIR, ignore_errors=True)
+        console.print(f"[green]Removed configuration directory:[/green] {cfgmod.CONFIG_DIR}")
+    elif not keep_config:
+        console.print(f"[dim]No configuration directory found at {cfgmod.CONFIG_DIR}[/dim]")
+
+    console.print("\n[bold yellow]To fully uninstall the package, run:[/bold yellow]")
+    console.print("  [cyan]pip uninstall appbuild -y[/cyan]")
+    console.print("\n[dim]If 'appbuild' is still available after that, remove appbuild.exe")
+    console.print("[dim]from your Python Scripts folder or restart the terminal.[/dim]")
+
+
+@app.command()
 def version():
     """Show appbuild version."""
     console.print(f"appbuild {__version__}")
